@@ -8,12 +8,11 @@ from email.mime.text import MIMEText
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.common import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium_stealth import stealth
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
-
 
 global total_jobs
 
@@ -56,11 +55,11 @@ def search_jobs(driver, country, job_position, job_location, date_posted):
 
 
 def scrape_job_data(driver, country):
-    df = pd.DataFrame({'Link': [''], 'Job Title': [''], 'Company': [''],
-                       'Date Posted': [''], 'Location': ['']})
+    df = pd.DataFrame({'JobTitle': [], 'Company': [],
+                       'DatePosted': [], 'Location': []})
     job_count = 0
     # count = 0
-    while True:
+    while True and job_count < 10:
         # count += 1
         soup = BeautifulSoup(driver.page_source, 'lxml')
 
@@ -78,7 +77,7 @@ def scrape_job_data(driver, country):
                 date_posted = i.find('span', class_='date').text
             except AttributeError:
                 date_posted = i.find('span', {'data-testid': 'myJobsStateDate'}).text.strip()
-
+                date_posted = date_posted.replace('Posted', '', 1)
             location_element = i.find('div', {'data-testid': 'text-location'})
             location = ''
             if location_element:
@@ -89,11 +88,11 @@ def scrape_job_data(driver, country):
                     location = span_element.text
                 else:
                     location = location_element.text
-
-            new_data = pd.DataFrame({'Link': [link_full], 'Job Title': [job_title],
+            if job_title != '':
+                new_data = pd.DataFrame({'JobTitle': [job_title],
                                      'Company': [company],
-                                     'Date Posted': [date_posted],
-                                     'Location': [location]})
+                                     'DatePosted': [date_posted],
+                                     'Location': [location]});
 
             df = pd.concat([df, new_data], ignore_index=True)
             job_count += 1
@@ -131,9 +130,9 @@ def clean_data(df):
         x = x.replace('+', '').strip()
         return x
 
-    df['Date Posted'] = df['Date Posted'].apply(posted)
-    df['Date Posted'] = df['Date Posted'].apply(day)
-    df['Date Posted'] = df['Date Posted'].apply(plus)
+    df['DatePosted'] = df['DatePosted'].apply(posted)
+    df['DatePosted'] = df['DatePosted'].apply(day)
+    df['DatePosted'] = df['DatePosted'].apply(plus)
 
     return df
 
@@ -145,11 +144,11 @@ def sort_data(df):
         except ValueError:
             return float('inf')
 
-    df['Date_num'] = df['Date Posted'].apply(lambda x: x[:2].strip())
+    df['Date_num'] = df['DatePosted'].apply(lambda x: x[:2].strip())
     df['Date_num2'] = df['Date_num'].apply(convert_to_integer)
     df.sort_values(by=['Date_num2'], inplace=True)
 
-    df = df[['Link', 'Job Title', 'Company', 'Date Posted', 'Location']]
+    df = df[['JobTitle', 'Company', 'DatePosted', 'Location']]
     return df
 
 

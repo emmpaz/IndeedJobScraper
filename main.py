@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
 from job_scraper_utils import *
+import psycopg2
+from sqlalchemy import create_engine
 
 load_dotenv()
 
@@ -38,11 +40,8 @@ ireland = 'https://ie.indeed.com'
 def main():
     driver = configure_webdriver()
     country = united_states
-    sender_email = os.getenv("SENDER_EMAIL")
-    receiver_email = os.getenv("RECEIVER_EMAIL")
-    password = os.getenv("PASSWORD")
-    job_position = ''
-    job_location = 'remote'
+    job_position = 'software engineer'
+    job_location = 'San francisco'
     date_posted = 10
 
     sorted_df = None
@@ -50,7 +49,12 @@ def main():
     try:
         full_url = search_jobs(driver, country, job_position, job_location, date_posted)
         df = scrape_job_data(driver, country)
-
+        df.to_csv(r'~/Desktop/pandas.csv',sep='|',header=None, index=None, mode='a')
+        connection = get_connection()
+        connection.autocommit = True
+        cur = connection.cursor()
+        sql = '''COPY postings(jobtitle, company, dateposted, location) FROM '/Users/manny/Desktop/pandas.csv' DELIMITER '|' CSV HEADER;'''
+        cur.execute(sql)
         if df.shape[0] == 1:
             print("No results found. Something went wrong.")
             subject = 'No Jobs Found on Indeed'
@@ -66,7 +70,6 @@ def main():
             Link {}
             """.format(full_url)
 
-            send_email_empty(sender_email, receiver_email, subject, body, password)
         else:
             cleaned_df = clean_data(df)
             sorted_df = sort_data(cleaned_df)
@@ -74,12 +77,24 @@ def main():
     finally:
         try:
             if sorted_df is not None:
-                send_email(sorted_df, sender_email, receiver_email, job_position, job_location, password)
+                print('f')
         except Exception as e:
             print(f"Error sending email: {e}")
         finally:
             pass
             driver.quit()
+
+def get_connection():
+    try:
+        return psycopg2.connect(
+            database="scraper",
+            user="postgres",
+            password="postgres",
+            host="127.0.0.1",
+            port='5432'
+        )
+    except:
+        return False
 
 
 if __name__ == "__main__":
