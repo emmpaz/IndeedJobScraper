@@ -42,8 +42,16 @@ def main():
     driver = configure_webdriver()
     country = united_states
     job_position = 'software engineer'
-    job_location = 'San francisco'
+    job_location = 'new york city'
     date_posted = 10
+
+    d = [
+        ['software engineer', 'new york city'],
+        ['software engineer', 'san francisco'],
+        ['software engineer', 'chicago'],
+        ['product manager', 'new york city'],
+        ['software engineer new grad', 'new york city'],
+    ]
 
     sorted_df = None
 
@@ -111,21 +119,43 @@ def get_connection():
 
 
 def insert_df_into_db(df : pd.DataFrame):
-    engine = create_engine('postgresql://alejandro:2KmH_gJAlO3WewOGPL0Xfw@scraperdb-11625.6wr.aws-us-west-2.cockroachlabs.cloud:26257/scraperdb.defaultdb?sslmode=verify-full')
+    engine = create_engine('cockroachdb://alejandro:2KmH_gJAlO3WewOGPL0Xfw@scraperdb-11625.6wr.aws-us-west-2.cockroachlabs.cloud:26257/scraperdb-11625.defaultdb?sslmode=verify-full')
 
     data = [tuple(x) for x in df.to_numpy()]
     columns = ','.join(df.columns)
 
     query = f"""
     INSERT INTO postings ({columns})
-    VALUES %s ON CONFLICT (job_id) DO NOTHING
+    VALUES %s ON CONFLICT (job_id) DO NOTHING;
     """
+
+    additional_queries = [
+        '''
+            CREATE TABLE IF NOT EXISTS search_queries(
+                id serial primary key,
+                search TEXT,
+                city TEXT
+            );
+        ''',
+        '''
+            CREATE TABLE IF NOT EXISTS postings(
+                job_id TEXT primary key NOT NULL,
+                job_title TEXT,
+                company TEXT,
+                date_posted TEXT,
+                location TEXT,
+                search_query_id INTEGER REFERENCES search_queries(id)
+            );
+        ''',
+    ]
 
     connection = engine.raw_connection()
 
     try:
         with connection.cursor() as cursor:
             execute_values(cursor, query, data)
+            for query in additional_queries:
+                cursor.execute(query)
         connection.commit()
     finally:
         connection.close()

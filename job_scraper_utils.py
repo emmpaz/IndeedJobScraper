@@ -51,7 +51,6 @@ def search_jobs(driver, country, job_position, job_location, date_posted):
         print("No job count found")
         total_jobs = "Unknown"
 
-    driver.save_screenshot('screenshot.png')
     return full_url
 
 
@@ -129,9 +128,11 @@ def convert_indeed_date(date_string):
         if item in date_string:
             return today
     if 'days ago' in date_string or 'day ago' in date_string:
+        print(date_string.split()[1])
         days = int(date_string.split()[1])
         return today - timedelta(days=days)
     elif 'months ago' or 'month ago' in date_string:
+        print(date_string.split()[1])
         months = int(date_string.split()[1])
         return today - timedelta(days=months*30)
     elif '30+ days ago' in date_string:
