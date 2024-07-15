@@ -4,7 +4,7 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
+import re
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -13,6 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium_stealth import stealth
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
+from datetime import datetime, timedelta
 
 global total_jobs
 
@@ -55,8 +56,8 @@ def search_jobs(driver, country, job_position, job_location, date_posted):
 
 
 def scrape_job_data(driver, country):
-    df = pd.DataFrame({'JobTitle': [], 'Company': [],
-                       'DatePosted': [], 'Location': []})
+    df = pd.DataFrame({'job_id': [] ,'job_title': [], 'company': [],
+                       'date_posted': [], 'location': []})
     job_count = 0
     # count = 0
     while True and job_count < 10:
@@ -78,6 +79,7 @@ def scrape_job_data(driver, country):
             except AttributeError:
                 date_posted = i.find('span', {'data-testid': 'myJobsStateDate'}).text.strip()
                 date_posted = date_posted.replace('Posted', '', 1)
+
             location_element = i.find('div', {'data-testid': 'text-location'})
             location = ''
             if location_element:
@@ -88,11 +90,20 @@ def scrape_job_data(driver, country):
                     location = span_element.text
                 else:
                     location = location_element.text
+                location = location.replace('&nbsp;', ' ')
+            
+            job_id = ''
+            if job_title:
+                span_element = i.find('a', class_='jcs-JobTitle css-jspxzf eu4oa1w0').span
+                if span_element:
+                    job_id = span_element.get('id')
+                    print(job_id)
+            
             if job_title != '':
-                new_data = pd.DataFrame({'JobTitle': [job_title],
-                                     'Company': [company],
-                                     'DatePosted': [date_posted],
-                                     'Location': [location]});
+                new_data = pd.DataFrame({ 'job_id' : [job_id],'job_title': [job_title],
+                                     'company': [company],
+                                     'date_posted': [date_posted],
+                                     'location': [location]});
 
             df = pd.concat([df, new_data], ignore_index=True)
             job_count += 1
@@ -111,46 +122,26 @@ def scrape_job_data(driver, country):
     return df
 
 
+def convert_indeed_date(date_string):
+    today = datetime.now().date()
+
+    for item in ['Just posted','hours ago', 'Today', 'hour ago']:
+        if item in date_string:
+            return today
+    if 'days ago' in date_string or 'day ago' in date_string:
+        days = int(date_string.split()[1])
+        return today - timedelta(days=days)
+    elif 'months ago' or 'month ago' in date_string:
+        months = int(date_string.split()[1])
+        return today - timedelta(days=months*30)
+    elif '30+ days ago' in date_string:
+        return today - timedelta(days=30)
+    else:
+        return 'NA'
+
 def clean_data(df):
-    def posted(x):
-        x = x.replace('PostedPosted', '').strip()
-        x = x.replace('EmployerActive', '').strip()
-        x = x.replace('PostedToday', '0').strip()
-        x = x.replace('PostedJust posted', '0').strip()
-        x = x.replace('today', '0').strip()
-
-        return x
-
-    def day(x):
-        x = x.replace('days ago', '').strip()
-        x = x.replace('day ago', '').strip()
-        return x
-
-    def plus(x):
-        x = x.replace('+', '').strip()
-        return x
-
-    df['DatePosted'] = df['DatePosted'].apply(posted)
-    df['DatePosted'] = df['DatePosted'].apply(day)
-    df['DatePosted'] = df['DatePosted'].apply(plus)
-
+    df['date_posted'] = df['date_posted'].apply(convert_indeed_date)
     return df
-
-
-def sort_data(df):
-    def convert_to_integer(x):
-        try:
-            return int(x)
-        except ValueError:
-            return float('inf')
-
-    df['Date_num'] = df['DatePosted'].apply(lambda x: x[:2].strip())
-    df['Date_num2'] = df['Date_num'].apply(convert_to_integer)
-    df.sort_values(by=['Date_num2'], inplace=True)
-
-    df = df[['JobTitle', 'Company', 'DatePosted', 'Location']]
-    return df
-
 
 def save_csv(df, job_position, job_location):
     def get_user_desktop_path():

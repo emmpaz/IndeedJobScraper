@@ -1,8 +1,9 @@
 from dotenv import load_dotenv
 from job_scraper_utils import *
 import psycopg2
+from psycopg2.extras import execute_values
 from sqlalchemy import create_engine
-
+import pandas as pd
 load_dotenv()
 
 """
@@ -49,12 +50,24 @@ def main():
     try:
         full_url = search_jobs(driver, country, job_position, job_location, date_posted)
         df = scrape_job_data(driver, country)
+        df = clean_data(df)
         df.to_csv(r'~/Desktop/pandas.csv',sep='|',header=None, index=None, mode='a')
-        connection = get_connection()
-        connection.autocommit = True
-        cur = connection.cursor()
-        sql = '''COPY postings(jobtitle, company, dateposted, location) FROM '/Users/manny/Desktop/pandas.csv' DELIMITER '|' CSV HEADER;'''
-        cur.execute(sql)
+        insert_df_into_db(df)
+        # connection = get_connection()
+        # connection.autocommit = True
+        # cur = connection.cursor()
+        # sql_create = '''
+        #                 CREATE TABLE IF NOT EXISTS postings(
+        #                     job_id TEXT primary key NOT NULL,
+        #                     job_title TEXT,
+        #                     company TEXT,
+        #                     date_posted TEXT,
+        #                     location TEXT
+        #                 );
+        #                 '''
+        # cur.execute(sql_create)
+        # sql = '''COPY postings(job_id, job_title, company, date_posted, location) FROM '/Users/manny/Desktop/pandas.csv' DELIMITER '|' CSV HEADER;'''
+        # cur.execute(sql)
         if df.shape[0] == 1:
             print("No results found. Something went wrong.")
             subject = 'No Jobs Found on Indeed'
@@ -71,9 +84,9 @@ def main():
             """.format(full_url)
 
         else:
-            cleaned_df = clean_data(df)
-            sorted_df = sort_data(cleaned_df)
-            # csv_file = save_csv(sorted_df, job_position, job_location)
+            print('f')
+            # cleaned_df = clean_data(df)
+            # sorted_df = sort_data(cleaned_df)
     finally:
         try:
             if sorted_df is not None:
@@ -96,6 +109,26 @@ def get_connection():
     except:
         return False
 
+
+def insert_df_into_db(df : pd.DataFrame):
+    engine = create_engine('postgresql://alejandro:2KmH_gJAlO3WewOGPL0Xfw@scraperdb-11625.6wr.aws-us-west-2.cockroachlabs.cloud:26257/scraperdb.defaultdb?sslmode=verify-full')
+
+    data = [tuple(x) for x in df.to_numpy()]
+    columns = ','.join(df.columns)
+
+    query = f"""
+    INSERT INTO postings ({columns})
+    VALUES %s ON CONFLICT (job_id) DO NOTHING
+    """
+
+    connection = engine.raw_connection()
+
+    try:
+        with connection.cursor() as cursor:
+            execute_values(cursor, query, data)
+        connection.commit()
+    finally:
+        connection.close()
 
 if __name__ == "__main__":
     main()
