@@ -61,40 +61,10 @@ def main():
         df = clean_data(df)
         df.to_csv(r'~/Desktop/pandas.csv',sep='|',header=None, index=None, mode='a')
         insert_df_into_db(df)
-        # connection = get_connection()
-        # connection.autocommit = True
-        # cur = connection.cursor()
-        # sql_create = '''
-        #                 CREATE TABLE IF NOT EXISTS postings(
-        #                     job_id TEXT primary key NOT NULL,
-        #                     job_title TEXT,
-        #                     company TEXT,
-        #                     date_posted TEXT,
-        #                     location TEXT
-        #                 );
-        #                 '''
-        # cur.execute(sql_create)
-        # sql = '''COPY postings(job_id, job_title, company, date_posted, location) FROM '/Users/manny/Desktop/pandas.csv' DELIMITER '|' CSV HEADER;'''
-        # cur.execute(sql)
         if df.shape[0] == 1:
             print("No results found. Something went wrong.")
-            subject = 'No Jobs Found on Indeed'
-            body = """
-            No jobs were found for the given search criteria.
-            Please consider the following:
-            1. Try adjusting your search criteria.
-            2. If you used English search keywords for non-English speaking countries,
-               it might return an empty result. Consider using keywords in the country's language.
-            3. Try more general keyword(s), check your spelling or replace abbreviations with the entire word
-
-            Feel free to try a manual search with this link and see for yourself:
-            Link {}
-            """.format(full_url)
-
         else:
-            print('f')
-            # cleaned_df = clean_data(df)
-            # sorted_df = sort_data(cleaned_df)
+            print('Done!')
     finally:
         try:
             if sorted_df is not None:
@@ -104,18 +74,48 @@ def main():
         finally:
             pass
             driver.quit()
+    
 
-def get_connection():
+def insert_into_local(df: pd.DataFrame):
+    engine = create_engine('postgresql://postgres:postgresql@127.0.0.1:5432/scraper')
+
+    data = [tuple(x) for x in df.to_numpy()]
+    columns = ','.join(df.columns)
+
+    query = f"""
+    INSERT INTO postings ({columns})
+    VALUES %s ON CONFLICT (job_id) DO NOTHING;
+    """
+
+    additional_queries = [
+        '''
+            CREATE TABLE IF NOT EXISTS search_queries(
+                id serial primary key,
+                search TEXT,
+                city TEXT
+            );
+        ''',
+        '''
+            CREATE TABLE IF NOT EXISTS postings(
+                job_id TEXT primary key NOT NULL,
+                job_title TEXT,
+                company TEXT,
+                date_posted TEXT,
+                location TEXT,
+                search_query_id INTEGER REFERENCES search_queries(id)
+            );
+        ''',
+    ]
+
+    connection = engine.raw_connection()
+
     try:
-        return psycopg2.connect(
-            database="scraper",
-            user="postgres",
-            password="postgres",
-            host="127.0.0.1",
-            port='5432'
-        )
-    except:
-        return False
+        for query in additional_queries:
+            connection.cursor().execute(query)
+        execute_values(connection.cursor(), query, data)
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def insert_df_into_db(df : pd.DataFrame):

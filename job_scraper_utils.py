@@ -38,7 +38,7 @@ def configure_webdriver():
 
 
 def search_jobs(driver, country, job_position, job_location, date_posted):
-    full_url = f'{country}/jobs?q={"+".join(job_position.split())}&l={job_location}&fromage={date_posted}'
+    full_url = f'{country}/jobs?q={"+".join(job_position.split())}&l={job_location}&radius=0&fromage={date_posted}'
     print(full_url)
     driver.get(full_url)
     global total_jobs
@@ -155,54 +155,3 @@ def save_csv(df, job_position, job_location):
     df.to_csv('{}.csv'.format(file_path), index=False)
 
     return csv_file
-
-
-def send_email(df, sender_email, receiver_email, job_position, job_location, password):
-    sender = sender_email
-    receiver = receiver_email
-    password = password
-    msg = MIMEMultipart()
-    msg['Subject'] = 'New Jobs from Indeed'
-    msg['From'] = sender
-    msg['To'] = ','.join(receiver)
-
-    attachment_filename = generate_attachment_filename(job_position, job_location)
-
-    csv_content = df.to_csv(index=False).encode()
-
-    part = MIMEBase('application', 'octet-stream')
-    part.set_payload(csv_content)
-    encoders.encode_base64(part)
-    part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
-    msg.attach(part)
-
-    s = smtplib.SMTP_SSL(host='smtp.gmail.com', port=465)
-    s.login(user=sender, password=password)
-
-    s.sendmail(sender, receiver, msg.as_string())
-
-    s.quit()
-
-
-def send_email_empty(sender, receiver_email, subject, body, password):
-    msg = MIMEMultipart()
-    password = password
-
-    msg['Subject'] = subject
-    msg['From'] = sender
-    msg['To'] = ','.join(receiver_email)
-
-    # Attach the body as the text/plain part of the email
-    msg.attach(MIMEText(body, 'plain'))
-
-    s = smtplib.SMTP_SSL(host='smtp.gmail.com', port=465)
-    s.login(user=sender, password=password)
-
-    s.sendmail(sender, receiver_email, msg.as_string())
-
-    s.quit()
-
-
-def generate_attachment_filename(job_title, job_location):
-    filename = f"{job_title.replace(' ', '_')}_{job_location.replace(' ', '_')}.csv"
-    return filename
