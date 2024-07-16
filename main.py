@@ -153,9 +153,9 @@ def insert_df_into_db(df : pd.DataFrame):
 
     try:
         with connection.cursor() as cursor:
+            for q in additional_queries:
+                cursor.execute(q)
             execute_values(cursor, query, data)
-            for query in additional_queries:
-                cursor.execute(query)
         connection.commit()
     finally:
         connection.close()
