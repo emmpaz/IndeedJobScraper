@@ -110,8 +110,8 @@ def insert_into_local(df: pd.DataFrame):
     connection = engine.raw_connection()
 
     try:
-        for query in additional_queries:
-            connection.cursor().execute(query)
+        for q in additional_queries:
+            connection.cursor().execute(q)
         execute_values(connection.cursor(), query, data)
         connection.commit()
     finally:
@@ -153,9 +153,10 @@ def insert_df_into_db(df : pd.DataFrame):
 
     try:
         with connection.cursor() as cursor:
+            execute_values(cursor, query, data)
             for q in additional_queries:
                 cursor.execute(q)
-            execute_values(cursor, query, data)
+            
         connection.commit()
     finally:
         connection.close()
