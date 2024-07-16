@@ -144,6 +144,7 @@ def clean_data(df):
     df['date_posted'] = df['date_posted'].apply(convert_indeed_date)
     return df
 
+
 def save_csv(df, job_position, job_location):
     def get_user_desktop_path():
         home_dir = os.path.expanduser("~")
@@ -155,3 +156,5 @@ def save_csv(df, job_position, job_location):
     df.to_csv('{}.csv'.format(file_path), index=False)
 
     return csv_file
+
+
