@@ -4,7 +4,6 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import re
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -59,7 +58,7 @@ def scrape_job_data(driver, country):
                        'date_posted': [], 'location': []})
     job_count = 0
     # count = 0
-    while True and job_count < 10:
+    while True:
         # count += 1
         soup = BeautifulSoup(driver.page_source, 'lxml')
 
@@ -96,7 +95,6 @@ def scrape_job_data(driver, country):
                 span_element = i.find('a', class_='jcs-JobTitle css-jspxzf eu4oa1w0').span
                 if span_element:
                     job_id = span_element.get('id')
-                    print(job_id)
             
             if job_title != '':
                 new_data = pd.DataFrame({ 'job_id' : [job_id],'job_title': [job_title],
@@ -128,11 +126,9 @@ def convert_indeed_date(date_string):
         if item in date_string:
             return today
     if 'days ago' in date_string or 'day ago' in date_string:
-        print(date_string.split()[1])
         days = int(date_string.split()[1])
         return today - timedelta(days=days)
     elif 'months ago' or 'month ago' in date_string:
-        print(date_string.split()[1])
         months = int(date_string.split()[1])
         return today - timedelta(days=months*30)
     elif '30+ days ago' in date_string:
