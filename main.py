@@ -2,12 +2,17 @@ from dotenv import load_dotenv
 from job_scraper_utils import *
 import psycopg2
 from psycopg2.extras import execute_values
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Engine, text
 import pandas as pd
 import requests
 from geopy.geocoders import Nominatim
 from pprint import pprint
-
+import sys
+from typing import List
+import threading
+from queue import Queue
+from functools import lru_cache
+from multiprocessing import Value
 load_dotenv()
 
 """
@@ -42,50 +47,102 @@ argentina = 'https://ar.indeed.com'
 ireland = 'https://ie.indeed.com'
 
 
+# quick calculations
+# ~1000 jobs = 176 kb = .176 mb
+# so 1 million job postings = 176 gb
+CLOUD = False 
+
 def main():
+
+    # title_list = [
+    #     'product manager',
+    # ]
+
+    title_list = [
+        'product manager',
+        'software engineer',
+        'data scientist',
+        'sales engineer',
+    ]
+    location_list = [
+        'seattle',
+        'los angeles'
+    ]
+
+    # location_list = [
+    #     'seattle',
+    #     'los angeles',
+    #     'dallas',
+    #     'new york city',
+    #     'portland',
+    #     'houston',
+    #     'philadelphia',
+    #     'kansas city',
+    #     'boston',
+    #     'denver',
+    #     'atlanta',
+    #     'nashville',
+    #     'san jose',
+    #     'chicago',
+    #     'austin',
+    #     'wichita',
+    #     'raleigh',
+    #     'phoenix',
+    # ]
+    search_query_hashmap = insert_search_query_db(title_list, location_list)
+    thread_list = []
+    resulting_queue = Queue()
+    total_jobs = Value('i', 0)
+
+    for location in location_list:
+        for title in title_list:
+            search_query_id = search_query_hashmap[(title, location)]
+            thread = threading.Thread(target=scrape_jobs_thread, args=(title, location, search_query_id, resulting_queue, total_jobs))
+            thread_list.append(thread)
+            thread.start()
+            print(f'{'★'*5} Scraping: {title.title()} in {location.title()} {'*'*5}\n')
+            #df.to_csv(r'~/Desktop/pandas.csv',sep='|',header=None, index=None, mode='a')
+        
+        #make sure all threads are done scraping, basically making them wait for eachother
+        for thread in thread_list:
+            thread.join()  
+
+        #expensive to create an engine, so using 1 shared is more efficient. each connection is separate
+        shared_engine = create_local_engine_once() if not CLOUD else create_cockroach_engine_once()
+
+        print(f'Current total jobs found: {total_jobs.value}')
+        while not resulting_queue.empty():
+            insert_into_local(resulting_queue.get(), shared_engine)
+        
+        thread_list.clear()
+        print(f'Done scraping: {location}')
+
+    print(f'{'*'*10}\n')
+    print(f'TOTAL JOBS SCRAPED: {total_jobs.value}\n')
+    print(f'{'*'*10}')
+
+def create_local_engine_once():
+    return create_engine('postgresql://postgres:postgresql@127.0.0.1:5432/scraper')
+
+def create_cockroach_engine_once():
+    return create_engine('cockroachdb://alejandro:2KmH_gJAlO3WewOGPL0Xfw@scraperdb-11625.6wr.aws-us-west-2.cockroachlabs.cloud:26257/scraperdb-11625.defaultdb?sslmode=verify-full')
+
+
+def scrape_jobs_thread(title, location, search_query_id, resulting_queue : Queue, total_jobs):
     driver = configure_webdriver()
     country = united_states
-    job_position = 'product manager'
-    job_location = 'salt lake city'
-    date_posted = 10
-
-    sorted_df = None
-
+    date_posted = 20
     try:
-        search_jobs(driver, country, job_position, job_location, date_posted)
-        
-        df = scrape_job_data(driver, country)
+        job_count = search_jobs(driver, country, title, location, date_posted, total_jobs)
+        df = scrape_job_data(driver, country, total_jobs)
         df = clean_data(df)
-
-        searchq = (job_position, job_location)
-        #df.to_csv(r'~/Desktop/pandas.csv',sep='|',header=None, index=None, mode='a')
-        
-        id = insert_search_query_db(searchq)
-        
-        insert_into_local(df, id)
-        #insert_df_into_db(df, searchq)
-        
-        if df.shape[0] == 1:
-            print("No results found. Something went wrong.")
-        else:
-            print('Done!')
+        df['search_query_id'] = search_query_id
+        resulting_queue.put(df)
     finally:
-        try:
-            if sorted_df is not None:
-                print('f')
-        except Exception as e:
-            print(f"Error sending email: {e}")
-        finally:
-            pass
-            driver.quit()
-    
+        driver.quit()
 
-def insert_into_local(df: pd.DataFrame, id: int):
-    engine = create_engine('postgresql://postgres:postgresql@127.0.0.1:5432/scraper')
-    
 
-    df['search_query_id'] = id
-    
+def insert_into_local(df: pd.DataFrame, engine : Engine):
     data = [tuple(x) for x in df.to_numpy()]
     columns = ','.join(df.columns)
 
@@ -95,7 +152,7 @@ def insert_into_local(df: pd.DataFrame, id: int):
     """
 
     additional_queries = [
-        '''
+       '''
             CREATE TABLE IF NOT EXISTS search_queries(
                 id serial primary key,
                 search TEXT,
@@ -116,33 +173,30 @@ def insert_into_local(df: pd.DataFrame, id: int):
             );
         ''',
     ]
-
     connection = engine.raw_connection()
-
     try:
-        for q in additional_queries:
-            connection.cursor().execute(q)
-        
-        #only use execute_values when we to insert a dataframe
-        execute_values(connection.cursor(), query, data)
-        connection.commit()
+        with connection.cursor() as cursor:
+            for q in additional_queries:
+                cursor.execute(q)
+                    
+                    #only use execute_values when we to insert a dataframe
+            execute_values(connection.cursor(), query, data)
+            connection.commit() 
     finally:
         connection.close()
 
+@lru_cache(maxsize=1000)
 def get_city(city : str):
-    app = Nominatim(user_agent='tutorial')
+    app = Nominatim(user_agent='testing script', timeout=5)
 
     your_loc = app.geocode(city).raw
 
     return [your_loc['lat'], your_loc['lon']]
 
-def insert_search_query_db(searchq : tuple):
-    #engine = create_engine('cockroachdb://alejandro:2KmH_gJAlO3WewOGPL0Xfw@scraperdb-11625.6wr.aws-us-west-2.cockroachlabs.cloud:26257/scraperdb-11625.defaultdb?sslmode=verify-full')
-
-    engine = create_engine('postgresql://postgres:postgresql@127.0.0.1:5432/scraper')
+def insert_search_query_db(title_list : List[tuple], location_list : List[tuple]):
+    engine = create_local_engine_once() if not CLOUD else create_cockroach_engine_once()
     
     #search for the latitude and longitude from the city
-    lat, lon = get_city(searchq[1])
 
     insert = f"""
         WITH existing AS(
@@ -167,27 +221,28 @@ def insert_search_query_db(searchq : tuple):
         '''
 
     connection = engine.raw_connection()
-
+    search_query_hash = {}
     search_query_id = None
     try:
         with connection.cursor() as cursor:
             #create table if doesn't exist
             cursor.execute(create_table)
             
-            
-            cursor.execute(insert, 
-                           (searchq[0], searchq[1], lat, lon, 
-                            searchq[0], searchq[1]))
-            
-            #the insert query should return a id
-            result = cursor.fetchone()
-            
-            search_query_id = result[0]
+            for title in title_list:
+                for location in location_list:
+                    lat, lon = get_city(location)
+                    cursor.execute(insert, 
+                                (title, location, lat, lon, 
+                                    title, location))
+                    #the insert query should return a id
+                    result = cursor.fetchone()
+                
+                    search_query_hash[(title, location)] = result[0]
             connection.commit()
     finally:
         connection.close()
 
-    return search_query_id
+    return search_query_hash
     
 
 
