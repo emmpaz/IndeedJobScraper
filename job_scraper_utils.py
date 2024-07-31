@@ -144,8 +144,7 @@ def scrape_job_data(driver, country, total_jobs):
             # Check if the 'Company' attribute exists
             company_tag = i.find('span', {'data-testid': 'company-name'})
             company = company_tag.text if company_tag else None
-            MAX_TRIES = 3
-            tries = 1
+
             date_posted = None
             date_spans = None
             try:
@@ -194,7 +193,7 @@ def scrape_job_data(driver, country, total_jobs):
 
             next_page = country + next_page
             driver.get(next_page)
-
+            driver
         except:
             break
 

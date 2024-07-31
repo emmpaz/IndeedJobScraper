@@ -50,7 +50,7 @@ ireland = 'https://ie.indeed.com'
 # quick calculations
 # ~1000 jobs = 176 kb = .176 mb
 # so 1 million job postings = 176 gb
-CLOUD = False 
+CLOUD = True 
 
 def main():
 
@@ -64,37 +64,42 @@ def main():
         'data scientist',
         'sales engineer',
     ]
+    # location_list = [
+    #     'san francisco',
+    #     'palo alto'
+    # ]
+
     location_list = [
         'seattle',
-        'los angeles'
+        'los angeles',
+        'dallas',
+        'new york city',
+        'portland',
+        'houston',
+        'philadelphia',
+        'kansas city',
+        'boston',
+        'denver',
+        'atlanta',
+        'nashville',
+        'san jose',
+        'chicago',
+        'austin',
+        'wichita',
+        'raleigh',
+        'phoenix',
     ]
 
-    # location_list = [
-    #     'seattle',
-    #     'los angeles',
-    #     'dallas',
-    #     'new york city',
-    #     'portland',
-    #     'houston',
-    #     'philadelphia',
-    #     'kansas city',
-    #     'boston',
-    #     'denver',
-    #     'atlanta',
-    #     'nashville',
-    #     'san jose',
-    #     'chicago',
-    #     'austin',
-    #     'wichita',
-    #     'raleigh',
-    #     'phoenix',
-    # ]
+    #hashmap to get ids from search query ids
     search_query_hashmap = insert_search_query_db(title_list, location_list)
-    thread_list = []
-    resulting_queue = Queue()
+    #expensive to create an engine, so using 1 shared is more efficient. each connection is separate
+    shared_engine = create_local_engine_once() if not CLOUD else create_cockroach_engine_once()
+    #shared variable for threads so we need to make it race condition safe
     total_jobs = Value('i', 0)
 
     for location in location_list:
+        thread_list = []
+        resulting_queue = Queue()
         for title in title_list:
             search_query_id = search_query_hashmap[(title, location)]
             thread = threading.Thread(target=scrape_jobs_thread, args=(title, location, search_query_id, resulting_queue, total_jobs))
@@ -107,14 +112,10 @@ def main():
         for thread in thread_list:
             thread.join()  
 
-        #expensive to create an engine, so using 1 shared is more efficient. each connection is separate
-        shared_engine = create_local_engine_once() if not CLOUD else create_cockroach_engine_once()
-
-        print(f'Current total jobs found: {total_jobs.value}')
+        print(f'Current total jobs found: {total_jobs.value}\n')
         while not resulting_queue.empty():
             insert_into_local(resulting_queue.get(), shared_engine)
         
-        thread_list.clear()
         print(f'Done scraping: {location}')
 
     print(f'{'*'*10}\n')
